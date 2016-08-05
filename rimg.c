@@ -34,6 +34,13 @@ typedef struct _TifTag {
 	t_4byte	DataOffset;	/* The byte offset to the data items */
 } TIFTAG;
 
+
+typedef struct _TiffHeader {
+	t_2byte byteOrder;
+	t_2byte tiffID;
+	t_4byte IFDOffset;	
+} TiffHeader;
+
 typedef struct _ImageInfo {
 	int imageWidth;
 	int imageHeight;
@@ -50,6 +57,16 @@ typedef struct _RGBData {
 	t_1byte *green;
 	t_1byte *blue;
 } RGBData;
+
+union tifHeader_union {
+		/* used to create an 8 byte header from an array of values */
+	struct {
+		t_1byte byteOrder[2];
+		t_1byte tiffID[2];
+		t_4byte offset;
+	};
+	t_8byte header;
+};
 
 union tiftag_union {
 		/* used to convert an array of 12 chars into a 12 byte struct */ 
@@ -79,7 +96,6 @@ union doubleShort_union {
 
 void die(const char *message);
 
-void extract_4bytes_from_int(t_1byte *bytes, t_4byte number, bool isLittleEndian);
 void extract_int_from_4bytes(t_1byte bytes[], bool isLittleEndian, int start, t_4byte *number);
 void extract_short_from_2bytes(t_1byte bytes[], bool isLittleEndian, int start, t_2byte *number);
 void extract_tiftag_from_12bytes(t_1byte bytes[], bool isLittleEndian, int start, TIFTAG *tiftag);
@@ -190,8 +206,6 @@ int main(int argc, char *argv[]) {
 			}
 		}
 	}
-
-
 
 
 
@@ -372,12 +386,18 @@ int main(int argc, char *argv[]) {
 
 
 
+		/* close file */
+	fclose(file_ptr);
+
+
+
 		/* We now have the raw rgb pixel data */
 
-		/* Simple conversion to greyscale */
+		/* Manipulate image pixels */
 
+
+	// simple conversion to greyscale
 	float fR, fG, fB, fGrey;
-
 	t_1byte greyData[channelDataSize];
 	for(long i=0; i<channelDataSize; i++) {
 		fR = rgbData.red[i];
@@ -387,20 +407,12 @@ int main(int argc, char *argv[]) {
 		greyData[i] = (t_1byte)(fGrey);
 	}
 
-
-
-
-		/* close file */
-	fclose(file_ptr);
-
-
-
-
-		/* Manipulate image pixels */
-	//simpleForwardDither(greyData, channelDataSize);
+	// dither image using Floyd Steinberg algorithm
 	floydSteinbergDither(greyData, imageInfo.imageWidth, imageInfo.imageHeight);
 
-		/* Write greyscale data to raw image file */
+
+
+		/* Write pixel data to raw image file */
 
 	printf("Writing image to file: %s\n", filename_out);
 	file_ptr = fopen(filename_out, "wb");
@@ -409,8 +421,28 @@ int main(int argc, char *argv[]) {
 
 
 
+		/* Create a bilevel tiff */
+//	t_1byte byteOrderBuffer[2] = {0x49, 0x49};
+//	short byteOrder = extract_short_from_2bytes();
 
+//	TiffHeader biLevelTifHeader;
+//	biLevelTifHeader.byteOrder = 
 
+	union tifHeader_union tifHeader_union;
+	tifHeader_union.byteOrder[0] = 0x49;
+	tifHeader_union.byteOrder[1] = 0x49;
+	tifHeader_union.tiffID[0] = 42;
+	tifHeader_union.tiffID[1] = 0;
+	tifHeader_union.offset = 0;
+
+	printf("8 bit header: %lu\n", tifHeader_union.header);
+
+	long headerValue = tifHeader_union.header;
+	for(int i=0; i<8; i++){
+		t_1byte b = ((unsigned char *)(&headerValue))[i];
+		printf("%d 0x%x : ", b, b);
+	}
+	printf("\n");
 
 		/* clean up */
 	free(rgbData.red);
@@ -428,35 +460,6 @@ void die(const char *message) {
 		printf("ERROR: %s\n", message);
 	}
 	exit(errno);
-}
-
-void extract_4bytes_from_int(t_1byte bytes[], t_4byte number, bool isLittleEndian) {
-
-	printf("Converting number %d to byte array.\n", number);
-
-	if(strlen((char*)bytes) < 4) {
-		printf("Error: Byte array not four bytes.\n");
-		return;
-	}
-
-	if(isLittleEndian) {
-		bytes[0] = (number >> 24) & 0xFF;
-		bytes[1] = (number >> 16) & 0xFF;
-		bytes[2] = (number >> 8) & 0xFF;
-		bytes[3] = number & 0xFF;
-	}
-	if(!isLittleEndian) {
-		bytes[3] = (number >> 24) & 0xFF;
-		bytes[2] = (number >> 16) & 0xFF;
-		bytes[1] = (number >> 8) & 0xFF;
-		bytes[0] = number & 0xFF;		
-	}
-
-	printf("IFDOffset: 0x%x\n", bytes[0]);
-	printf("IFDOffset: 0x%x\n", bytes[1]);
-	printf("IFDOffset: 0x%x\n", bytes[2]);
-	printf("IFDOffset: 0x%x\n", bytes[3]);
-
 }
 
 void extract_int_from_4bytes(t_1byte bytes[], bool isLittleEndian, int start, t_4byte *number) {
