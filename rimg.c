@@ -12,13 +12,16 @@
 	/* Some TIF spec data types */
 #define IMAGE_WIDTH 		256
 #define IMAGE_HEIGHT 		257
-#define ROWS_PER_STRIP 		278
-#define STRIP_OFFSETS 		273
-#define STRIP_BYTE_COUNTS	279
+#define BITS_PER_SAMPLE		258
 #define COMPRESSION		259
 #define	PHOTOMETRIC		262
+#define STRIP_OFFSETS 		273
 #define SAMPLES_PER_PIXEL	277
-#define BITS_PER_SAMPLE		258
+#define ROWS_PER_STRIP 		278
+#define STRIP_BYTE_COUNTS	279
+#define X_RESOLUTION 		282
+#define Y_RESOLUTION 		283
+#define RESOLUTION 		296
 
 	/* We only use unsigned types */
 typedef unsigned char 	t_1byte;
@@ -96,6 +99,7 @@ union doubleShort_union {
 
 void die(const char *message);
 
+t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen);
 void extract_int_from_4bytes(t_1byte bytes[], bool isLittleEndian, int start, t_4byte *number);
 void extract_short_from_2bytes(t_1byte bytes[], bool isLittleEndian, int start, t_2byte *number);
 void extract_tiftag_from_12bytes(t_1byte bytes[], bool isLittleEndian, int start, TIFTAG *tiftag);
@@ -119,7 +123,7 @@ int main(int argc, char *argv[]) {
 
 
 
-		/* print some byte lengts of types */
+		/* print some byte lengths of types */
 	printf("================\n");
 	printf("  %lu bytes (unsigned char)  : t_1byte\n", sizeof(t_1byte));
 	printf("  %lu bytes (unsigned short) : t_2byte\n", sizeof(t_2byte));
@@ -428,23 +432,236 @@ int main(int argc, char *argv[]) {
 //	TiffHeader biLevelTifHeader;
 //	biLevelTifHeader.byteOrder = 
 
-	union tifHeader_union tifHeader_union;
-	tifHeader_union.byteOrder[0] = 0x49;
-	tifHeader_union.byteOrder[1] = 0x49;
-	tifHeader_union.tiffID[0] = 42;
-	tifHeader_union.tiffID[1] = 0;
-	tifHeader_union.offset = 0;
+	int byteCounter = 0;
 
-	printf("8 bit header: %lu\n", tifHeader_union.header);
 
-	long headerValue = tifHeader_union.header;
+	union tifHeader_union w_tifHeader_union;
+	w_tifHeader_union.byteOrder[0] = 0x49; // little endian
+	w_tifHeader_union.byteOrder[1] = 0x49; // little endian
+	w_tifHeader_union.tiffID[0] = 42; // tiff signature
+	w_tifHeader_union.tiffID[1] = 0; // tiff signature
+	w_tifHeader_union.offset = 8; // first IFD starts at byte 8 (9th byte)
+
+	byteCounter += 8;
+
+
+	printf("8 bit header: %lu\n", w_tifHeader_union.header);
+	long headerValue = w_tifHeader_union.header;
 	for(int i=0; i<8; i++){
 		t_1byte b = ((unsigned char *)(&headerValue))[i];
 		printf("%d 0x%x : ", b, b);
 	}
 	printf("\n");
 
+	int tagid = 0;
+
+	t_2byte w_noOfTagEntries;
+	byteCounter += 2;
+
+	TIFTAG 	photometric_tag;
+	tagid++;
+		photometric_tag.TagId = PHOTOMETRIC;
+		photometric_tag.DataCount = 1;
+		photometric_tag.DataType = 3;
+
+	TIFTAG 	compression_tag;
+	tagid++;
+		compression_tag.TagId = COMPRESSION;
+		compression_tag.DataCount = 1;
+		compression_tag.DataType = 3;
+
+	TIFTAG 	width_tag;
+	tagid++;
+		width_tag.TagId = IMAGE_WIDTH;
+		width_tag.DataCount = 1;
+		width_tag.DataType = 3;
+
+	TIFTAG 	height_tag;
+	tagid++;
+		height_tag.TagId = IMAGE_HEIGHT;
+		height_tag.DataCount = 1;
+		height_tag.DataType = 3;
+
+	TIFTAG 	resolution_unit_tag;
+	tagid++;
+		resolution_unit_tag.TagId = RESOLUTION;
+		resolution_unit_tag.DataCount = 1;
+		resolution_unit_tag.DataType = 3;
+
+	TIFTAG 	x_resolution_tag;
+	tagid++;
+		x_resolution_tag.TagId = X_RESOLUTION;
+		x_resolution_tag.DataCount = 1;
+		x_resolution_tag.DataType = 5;
+
+	TIFTAG 	y_resolution_tag;
+	tagid++;
+		y_resolution_tag.TagId = Y_RESOLUTION;
+		y_resolution_tag.DataCount = 1;
+		y_resolution_tag.DataType = 5;
+
+	TIFTAG 	rows_per_strip_tag;
+	tagid++;
+		rows_per_strip_tag.TagId = ROWS_PER_STRIP;
+		rows_per_strip_tag.DataCount = 1;
+		rows_per_strip_tag.DataType = 3;
+
+	TIFTAG 	strip_offsets_tag;
+	tagid++;
+		strip_offsets_tag.TagId = STRIP_OFFSETS;
+		strip_offsets_tag.DataCount = 1;
+		strip_offsets_tag.DataType = 3;
+
+	TIFTAG 	strip_byte_counts_tag;
+	tagid++;
+		strip_byte_counts_tag.TagId = STRIP_BYTE_COUNTS; 
+		strip_byte_counts_tag.DataCount = 1;
+		strip_byte_counts_tag.DataType = 3;
+
+	byteCounter += (tagid * sizeof(TIFTAG));
+	w_noOfTagEntries = tagid; // no need for +1 (added with final ++ above).
+
+
+	photometric_tag.	DataOffset = 0; // white is 0
+	compression_tag.	DataOffset = 1; // no compression
+	width_tag.		DataOffset = imageInfo.imageWidth;
+	height_tag.		DataOffset = imageInfo.imageHeight;
+	resolution_unit_tag.	DataOffset = 2; // inch as unit
+	x_resolution_tag.	DataOffset = byteCounter;
+		byteCounter += 8; // x_resolution_tag
+	y_resolution_tag.	DataOffset = byteCounter+8;
+		byteCounter += 8; // y_resolution_tag
+	rows_per_strip_tag.	DataOffset = imageInfo.imageHeight; // just 1 strip, so same as image height
+	strip_offsets_tag.	DataOffset = byteCounter; // where to find pixel data
+	strip_byte_counts_tag.	DataOffset = imageInfo.imageWidth * imageInfo.imageHeight; // how big is pixel data
+
+	TIFTAG w_tiftags[] = {
+		photometric_tag, 
+		compression_tag, 
+		width_tag, 
+		height_tag, 
+		resolution_unit_tag,
+		x_resolution_tag,
+		y_resolution_tag,
+		rows_per_strip_tag,
+		strip_offsets_tag,
+		strip_byte_counts_tag,
+	};
+
+
+
+	// the data that did not fit into the tiftag offset fields
+	t_4byte xy_resolution_w[2] = {72,1}; // create the RATIONAL number 72 
+
+
+
+	printf("w_tiftags length: %lu\n", sizeof(w_tiftags)/sizeof(TIFTAG));
+
+	for(int i=0; i<10; i++) {
+		printf("TIFTAG: %d, %d, %d, %d\n", w_tiftags[i].TagId, w_tiftags[i].DataCount, w_tiftags[i].DataType, w_tiftags[i].DataOffset);
+	}
+
+
+
+
+
+
+	// creating bitArray with pixel data
+	int j = 0;
+	int bitArrayCounter = 0;
+	int dataCounter = 0;
+	int bitArraySize = channelDataSize/8;
+	t_1byte *bitArray = malloc(bitArraySize);
+	if(!bitArray) die("Memory alloc of bitArray failed.");
+	t_1byte bitBuffer[8];
+	while(dataCounter < channelDataSize) {
+		if(j<8) {
+			bitBuffer[j++] = (greyData[dataCounter++]>128 ? 0:1);
+		}
+		if(j==8){
+			t_1byte eight_bits = make_bits_from_bytes(bitBuffer, 8);
+			if(bitArrayCounter>=bitArraySize) die("Trying to write ourside of bitArray");
+			bitArray[bitArrayCounter++] = eight_bits;
+			j=0;
+		}
+	}
+
+/*
+	printf("Tiff array: ");
+	for(int i=0; i<bitArraySize; i++) {
+		printf("%d ", bitArray[i]);
+	}
+	printf("\n");
+	printf("dataCounter: %d\n", dataCounter);
+*/
+
+	// clamp grey data to 0 and 1
+//	for(int i=0; i<channelDataSize; i++) {
+//		greyData[i] = (greyData[i]>128 ? 1:0);
+//	}
+
+
+		/* writing tiff to file */
+
+
+
+
+
+
+		/* open the file */
+
+	printf("Writing bilevel tiff to file: %s\n", "out.tif");
+	file_ptr = fopen("out.tif", "wb");
+
+
+		/* tiff header */
+	fwrite(&w_tifHeader_union.header, sizeof(t_8byte), 1, file_ptr);
+
+
+		/* ifd header */
+	fwrite(&w_noOfTagEntries, sizeof(t_2byte), 1, file_ptr);
+
+
+		/* tiftags */	
+	fwrite(w_tiftags, sizeof(TIFTAG), 10, file_ptr);
+
+
+		/* 4 byte pointer to next ifd (0) */
+	t_4byte w_nextIFDOffset = 0;
+	fwrite(&w_nextIFDOffset, sizeof(t_4byte), 1, file_ptr);
+
+
+		/* tiftag data */
+	// write RATIONAL (2 int numbers) for x_resolution
+	fwrite(xy_resolution_w, sizeof(t_4byte), 2, file_ptr);
+	// write RATIONAL (2 int numbers) for y_resolution
+	fwrite(xy_resolution_w, sizeof(t_4byte), 2, file_ptr);
+
+
+		/* pixel data */
+	fwrite(bitArray, sizeof(t_1byte), bitArraySize, file_ptr);
+//	fwrite(greyData, sizeof(t_1byte), channelDataSize, file_ptr);
+
+
+		/* close the file */
+	fclose(file_ptr);
+
+
+
+
+
+	printf("byteCounter = %d\n", byteCounter);
+
+
+
+
+
+
+
+
+
 		/* clean up */
+	free(bitArray);
 	free(rgbData.red);
 	free(rgbData.green);
 	free(rgbData.blue);
@@ -461,6 +678,42 @@ void die(const char *message) {
 	}
 	exit(errno);
 }
+
+/*
+t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
+	t_1byte value = 0;
+	int m = pow(2, byteArrayLen);
+	for(int i=byteArrayLen; i>=0; i--) {
+		if(bytes[i]) value = value + m;
+		m=m/2;
+	}
+	return value;
+}
+*/
+
+
+t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
+	t_1byte value = 0;
+	int m = pow(2, byteArrayLen);
+	for(int i=0; i<byteArrayLen; i++) {
+		if(bytes[i]) value = value + m;
+		m=m/2;
+	}
+	return value;
+}
+
+
+/*
+t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
+	t_1byte value = 0;
+	int m = 1;
+	for(int i=0; i<byteArrayLen; i++) {
+		if(bytes[i]) value = value + m;
+		m=m*2;
+	}
+	return value;
+}
+*/
 
 void extract_int_from_4bytes(t_1byte bytes[], bool isLittleEndian, int start, t_4byte *number) {
 	// create a 4 byte unsigned int from an array of four 1 byte chars.
@@ -553,6 +806,9 @@ void extract_tiftag_from_12bytes(t_1byte bytes[], bool isLittleEndian, int start
 
 	// calculate data size
 	int dataSize = getDataSize(dataType, dataCount);
+	
+	printf("dataType: %d\n", dataType);
+
 	if(dataSize == -1) die("Unknown datatype in tiff file.");
 
 	// dataoffset - 4 bytes
