@@ -8,6 +8,7 @@
 #include <math.h>
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
 	/* Some TIF spec data types */
 #define IMAGE_WIDTH 		256
@@ -425,12 +426,24 @@ int main(int argc, char *argv[]) {
 
 
 
-		/* Create a bilevel tiff */
-//	t_1byte byteOrderBuffer[2] = {0x49, 0x49};
-//	short byteOrder = extract_short_from_2bytes();
 
-//	TiffHeader biLevelTifHeader;
-//	biLevelTifHeader.byteOrder = 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		/* Create a bilevel tiff */
 
 	int byteCounter = 0;
 
@@ -445,19 +458,11 @@ int main(int argc, char *argv[]) {
 	byteCounter += 8;
 
 
-	printf("8 bit header: %lu\n", w_tifHeader_union.header);
-	long headerValue = w_tifHeader_union.header;
-	for(int i=0; i<8; i++){
-		t_1byte b = ((unsigned char *)(&headerValue))[i];
-		printf("%d 0x%x : ", b, b);
-	}
-	printf("\n");
-
-	int tagid = 0;
-
 	t_2byte w_noOfTagEntries;
 	byteCounter += 2;
 
+
+	int tagid = 0;
 	TIFTAG 	photometric_tag;
 	tagid++;
 		photometric_tag.TagId = PHOTOMETRIC;
@@ -522,6 +527,10 @@ int main(int argc, char *argv[]) {
 	w_noOfTagEntries = tagid; // no need for +1 (added with final ++ above).
 
 
+	t_4byte w_nextIFDOffset = 0;
+	byteCounter += sizeof(t_4byte);
+
+
 	photometric_tag.	DataOffset = 0; // white is 0
 	compression_tag.	DataOffset = 1; // no compression
 	width_tag.		DataOffset = imageInfo.imageWidth;
@@ -549,9 +558,8 @@ int main(int argc, char *argv[]) {
 	};
 
 
-
 	// the data that did not fit into the tiftag offset fields
-	t_4byte xy_resolution_w[2] = {72,1}; // create the RATIONAL number 72 
+	t_4byte w_xy_resolution[2] = {72,1}; // create the RATIONAL number 72 
 
 
 
@@ -566,81 +574,64 @@ int main(int argc, char *argv[]) {
 
 
 
-	// creating bitArray with pixel data
-	int j = 0;
+	// creating w_bitArray with pixel data
+	int bitArraySize = channelDataSize/8; // what if the image is not dividable with 8 ?
+	t_1byte *w_bitArray = malloc(bitArraySize);
+	if(!w_bitArray) die("Memory alloc of bitArray failed.");
+	t_1byte bitBuffer[8];
+
 	int bitArrayCounter = 0;
 	int dataCounter = 0;
-	int bitArraySize = channelDataSize/8;
-	t_1byte *bitArray = malloc(bitArraySize);
-	if(!bitArray) die("Memory alloc of bitArray failed.");
-	t_1byte bitBuffer[8];
+	int bitBufferCounter = 0;
 	while(dataCounter < channelDataSize) {
-		if(j<8) {
-			bitBuffer[j++] = (greyData[dataCounter++]>128 ? 0:1);
+		if(bitBufferCounter<8) {
+			bitBuffer[bitBufferCounter++] = (greyData[dataCounter++]>128 ? 0:1);
 		}
-		if(j==8){
+		if(bitBufferCounter==8){
 			t_1byte eight_bits = make_bits_from_bytes(bitBuffer, 8);
 			if(bitArrayCounter>=bitArraySize) die("Trying to write ourside of bitArray");
-			bitArray[bitArrayCounter++] = eight_bits;
-			j=0;
+			w_bitArray[bitArrayCounter++] = eight_bits;
+			bitBufferCounter=0;
 		}
 	}
 
-/*
-	printf("Tiff array: ");
-	for(int i=0; i<bitArraySize; i++) {
-		printf("%d ", bitArray[i]);
-	}
-	printf("\n");
-	printf("dataCounter: %d\n", dataCounter);
-*/
 
-	// clamp grey data to 0 and 1
-//	for(int i=0; i<channelDataSize; i++) {
-//		greyData[i] = (greyData[i]>128 ? 1:0);
-//	}
+
 
 
 		/* writing tiff to file */
 
 
 
-
-
-
 		/* open the file */
-
-	printf("Writing bilevel tiff to file: %s\n", "out.tif");
 	file_ptr = fopen("out.tif", "wb");
+
 
 
 		/* tiff header */
 	fwrite(&w_tifHeader_union.header, sizeof(t_8byte), 1, file_ptr);
 
-
 		/* ifd header */
 	fwrite(&w_noOfTagEntries, sizeof(t_2byte), 1, file_ptr);
-
 
 		/* tiftags */	
 	fwrite(w_tiftags, sizeof(TIFTAG), 10, file_ptr);
 
-
 		/* 4 byte pointer to next ifd (0) */
-	t_4byte w_nextIFDOffset = 0;
 	fwrite(&w_nextIFDOffset, sizeof(t_4byte), 1, file_ptr);
-
 
 		/* tiftag data */
 	// write RATIONAL (2 int numbers) for x_resolution
-	fwrite(xy_resolution_w, sizeof(t_4byte), 2, file_ptr);
-	// write RATIONAL (2 int numbers) for y_resolution
-	fwrite(xy_resolution_w, sizeof(t_4byte), 2, file_ptr);
+	fwrite(w_xy_resolution, sizeof(t_4byte), 2, file_ptr);
 
+	// write RATIONAL (2 int numbers) for y_resolution (same as x)
+	fwrite(w_xy_resolution, sizeof(t_4byte), 2, file_ptr);
+
+	printf("byteCounter: %d\n", byteCounter);
+	printf("ftell says: %lu\n", ftell(file_ptr));
 
 		/* pixel data */
-	fwrite(bitArray, sizeof(t_1byte), bitArraySize, file_ptr);
-//	fwrite(greyData, sizeof(t_1byte), channelDataSize, file_ptr);
+	fwrite(w_bitArray, sizeof(t_1byte), bitArraySize, file_ptr);
 
 
 		/* close the file */
@@ -649,19 +640,8 @@ int main(int argc, char *argv[]) {
 
 
 
-
-	printf("byteCounter = %d\n", byteCounter);
-
-
-
-
-
-
-
-
-
 		/* clean up */
-	free(bitArray);
+	free(w_bitArray);
 	free(rgbData.red);
 	free(rgbData.green);
 	free(rgbData.blue);
@@ -679,41 +659,15 @@ void die(const char *message) {
 	exit(errno);
 }
 
-/*
 t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
 	t_1byte value = 0;
-	int m = pow(2, byteArrayLen);
-	for(int i=byteArrayLen; i>=0; i--) {
-		if(bytes[i]) value = value + m;
-		m=m/2;
-	}
-	return value;
-}
-*/
-
-
-t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
-	t_1byte value = 0;
-	int m = pow(2, byteArrayLen);
+	int m = pow(2, byteArrayLen-1);
 	for(int i=0; i<byteArrayLen; i++) {
 		if(bytes[i]) value = value + m;
 		m=m/2;
 	}
 	return value;
 }
-
-
-/*
-t_1byte make_bits_from_bytes(t_1byte bytes[], int byteArrayLen) {
-	t_1byte value = 0;
-	int m = 1;
-	for(int i=0; i<byteArrayLen; i++) {
-		if(bytes[i]) value = value + m;
-		m=m*2;
-	}
-	return value;
-}
-*/
 
 void extract_int_from_4bytes(t_1byte bytes[], bool isLittleEndian, int start, t_4byte *number) {
 	// create a 4 byte unsigned int from an array of four 1 byte chars.
